@@ -15,3 +15,7 @@ This project aims to develop an Autonomous Underwater Vehicle (AUV) using ROS2 F
 - Build a robust control system for the AUV.
 - Implement autonomous behaviors such as path-following, obstacle avoidance, and station-keeping.
 - Test and validate the AUV’s performance in a simulated underwater environment and real-world conditions.
+
+Project Flow
+<img src="assets/Project_Flow.png"/>
+

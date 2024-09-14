@@ -6,4 +6,3 @@ Follow the instruction of [Dynamixel SDK](https://emanual.robotis.com/docs/en/so
 ``` shell
 sudo apt-get install ros-foxy-dynamixel-sdk
 ```
-
