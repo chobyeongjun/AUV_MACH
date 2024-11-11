@@ -1,0 +1,95 @@
+import smbus
+import time
+import math
+import numpy as np
+
+# I2C address of the MPU-6050
+MPU_ADDRESS = 0x68
+
+# Power management registers
+POWER_MGMT_1 = 0x6B
+
+# Gyro and accelerometer registers
+GYRO_XOUT_H = 0x43
+GYRO_YOUT_H = 0x45
+GYRO_ZOUT_H = 0x47
+ACCEL_XOUT_H = 0x3B
+ACCEL_YOUT_H = 0x3D
+ACCEL_ZOUT_H = 0x3F
+
+# Initialize I2C bus
+bus = smbus.SMBus(1)
+
+def read_word_2c(addr):
+    high = bus.read_byte_data(MPU_ADDRESS, addr)
+    low = bus.read_byte_data(MPU_ADDRESS, addr + 1)
+    val = (high << 8) + low
+    if val >= 0x8000:
+        return -((65535 - val) + 1)
+    else:
+        return val
+
+def read_gyro():
+    gyro_x = read_word_2c(GYRO_XOUT_H) / 131.0
+    gyro_y = read_word_2c(GYRO_YOUT_H) / 131.0
+    gyro_z = read_word_2c(GYRO_ZOUT_H) / 131.0
+    return np.array([gyro_x, gyro_y, gyro_z])
+
+def read_accel():
+    accel_x = read_word_2c(ACCEL_XOUT_H) / 16384.0
+    accel_y = read_word_2c(ACCEL_YOUT_H) / 16384.0
+    accel_z = read_word_2c(ACCEL_ZOUT_H) / 16384.0
+    return np.array([accel_x, accel_y, accel_z])
+
+def initialize_mpu():
+    # Wake up the MPU-6050 since it starts in sleep mode
+    bus.write_byte_data(MPU_ADDRESS, POWER_MGMT_1, 0)
+
+# 상보필터 씌워서 alpha값 조정하면 됩니다.
+def complementary_filter(accel_angle, gyro_rate, dt, alpha=0.98):
+    return alpha * (accel_angle + gyro_rate * dt) + (1 - alpha) * accel_angle
+
+# Calculate angle from accelerometer data
+def get_accel_angle(accel_data):
+    accel_x, accel_y, accel_z = accel_data
+    angle_x = math.atan2(accel_y, math.sqrt(accel_x ** 2 + accel_z ** 2)) * 180 / math.pi
+    angle_y = math.atan2(-accel_x, math.sqrt(accel_y ** 2 + accel_z ** 2)) * 180 / math.pi
+    return angle_x, angle_y
+
+# Main code
+initialize_mpu()
+
+# Initial angles
+prev_time = time.time()
+gyro_angle_x, gyro_angle_y, gyro_angle_z = 0.0, 0.0, 0.0  # Start with zero angles
+
+try:
+    while True:
+        current_time = time.time()
+        dt = current_time - prev_time
+        prev_time = current_time
+
+        # Read accelerometer and gyroscope data
+        accel_data = read_accel()
+        gyro_data = read_gyro()
+
+        # Get angle from accelerometer (only X and Y are reliable for correction)
+        accel_angle_x, accel_angle_y = get_accel_angle(accel_data)
+
+        # Update angles using gyro data
+        gyro_angle_x += gyro_data[0] * dt
+        gyro_angle_y += gyro_data[1] * dt
+        gyro_angle_z += gyro_data[2] * dt  # Z axis (yaw) angle update without correction
+
+        # Apply complementary filter to X and Y only
+        angle_x = complementary_filter(accel_angle_x, gyro_data[0], dt)
+        angle_y = complementary_filter(accel_angle_y, gyro_data[1], dt)
+
+        # Print filtered angles for X and Y, and raw gyro-based angle for Z
+        print(f"Filtered Angle X: {angle_x:.2f}, Filtered Angle Y: {angle_y:.2f}, Yaw Angle Z: {gyro_angle_z:.2f}")
+
+        # Small delay for stability
+        time.sleep(0.01)
+
+except KeyboardInterrupt:
+    print("Measurement stopped")
