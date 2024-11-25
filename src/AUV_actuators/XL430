@@ -1,0 +1,114 @@
+from dynamixel_sdk import *  # Dynamixel SDK import
+
+# Control table address for operating mode and goal velocity
+ADDR_TORQUE_ENABLE = 64           # Torque enable address
+ADDR_OPERATING_MODE = 11          # Operating mode address
+ADDR_GOAL_VELOCITY = 104          # Goal velocity address
+ADDR_PRESENT_VELOCITY = 128       # Present velocity address
+
+# Protocol version
+PROTOCOL_VERSION = 2.0            # Dynamixel Protocol 2.0
+
+# Default setting
+DXL1_ID = 1                      # XL430 ID
+DXL2_ID = 2                       # XL330 ID 1
+DXL3_ID = 3                       # XL330 ID 2
+BAUDRATE = 57600                  # Baudrate
+DEVICENAME = '/dev/tty.usbserial-FT7W932B'       # USB serial device
+
+TORQUE_ENABLE = 1                 # Torque enable
+TORQUE_DISABLE = 0                # Torque disable
+
+VELOCITY_MODE = 1                 # Velocity control mode
+
+# Initialize PortHandler and PacketHandler
+portHandler = PortHandler(DEVICENAME)
+packetHandler = PacketHandler(PROTOCOL_VERSION)
+
+# Initialize GroupSyncWrite instance for velocity control
+groupSyncWrite = GroupSyncWrite(portHandler, packetHandler, ADDR_GOAL_VELOCITY, 4)
+
+# Open port
+if not portHandler.openPort():
+    print("Failed to open the port")
+    quit()
+
+# Set port baudrate
+if not portHandler.setBaudRate(BAUDRATE):
+    print("Failed to set the baudrate")
+    quit()
+
+# Disable torque first before changing operating mode
+def disable_torque(dxl_id):
+    dxl_comm_result, dxl_error = packetHandler.write1ByteTxRx(portHandler, dxl_id, ADDR_TORQUE_ENABLE, TORQUE_DISABLE)
+    if dxl_comm_result != COMM_SUCCESS:
+        print(f"Failed to disable torque for motor {dxl_id}: {packetHandler.getTxRxResult(dxl_comm_result)}")
+    elif dxl_error != 0:
+        print(f"Motor {dxl_id} error: {packetHandler.getRxPacketError(dxl_error)}")
+
+# Enable torque and set velocity mode for each motor
+def enable_torque_and_set_velocity_mode(dxl_id):
+    # Disable torque before changing the operating mode
+    disable_torque(dxl_id)
+
+    # Set operating mode to velocity control mode (1)
+    dxl_comm_result, dxl_error = packetHandler.write1ByteTxRx(portHandler, dxl_id, ADDR_OPERATING_MODE, VELOCITY_MODE)
+    if dxl_comm_result != COMM_SUCCESS:
+        print(f"Failed to set velocity mode for motor {dxl_id}: {packetHandler.getTxRxResult(dxl_comm_result)}")
+    elif dxl_error != 0:
+        print(f"Motor {dxl_id} error: {packetHandler.getRxPacketError(dxl_error)}")
+
+    # Enable torque
+    dxl_comm_result, dxl_error = packetHandler.write1ByteTxRx(portHandler, dxl_id, ADDR_TORQUE_ENABLE, TORQUE_ENABLE)
+    if dxl_comm_result != COMM_SUCCESS:
+        print(f"Failed to enable torque for motor {dxl_id}: {packetHandler.getTxRxResult(dxl_comm_result)}")
+    elif dxl_error != 0:
+        print(f"Motor {dxl_id} error: {packetHandler.getRxPacketError(dxl_error)}")
+
+# Enable torque and set velocity mode for each motor
+enable_torque_and_set_velocity_mode(DXL1_ID)
+enable_torque_and_set_velocity_mode(DXL2_ID)
+enable_torque_and_set_velocity_mode(DXL3_ID)
+
+# Set goal velocity for each motor (positive value for forward, negative for reverse)
+goal_velocity_1 = 0  # Set velocity for XL430
+goal_velocity_2 = 50  # Set velocity for XL330 (motor 2)
+goal_velocity_3 = 50  # Set velocity for XL330 (motor 3)
+
+# Pack goal velocities for Group Sync Write
+param_goal_velocity_1 = [DXL_LOBYTE(DXL_LOWORD(goal_velocity_1)),
+                         DXL_HIBYTE(DXL_LOWORD(goal_velocity_1)),
+                         DXL_LOBYTE(DXL_HIWORD(goal_velocity_1)),
+                         DXL_HIBYTE(DXL_HIWORD(goal_velocity_1))]
+
+param_goal_velocity_2 = [DXL_LOBYTE(DXL_LOWORD(goal_velocity_2)),
+                         DXL_HIBYTE(DXL_LOWORD(goal_velocity_2)),
+                         DXL_LOBYTE(DXL_HIWORD(goal_velocity_2)),
+                         DXL_HIBYTE(DXL_HIWORD(goal_velocity_2))]
+
+param_goal_velocity_3 = [DXL_LOBYTE(DXL_LOWORD(goal_velocity_3)),
+                         DXL_HIBYTE(DXL_LOWORD(goal_velocity_3)),
+                         DXL_LOBYTE(DXL_HIWORD(goal_velocity_3)),
+                         DXL_HIBYTE(DXL_HIWORD(goal_velocity_3))]
+
+# Add the velocities to the sync write parameters
+groupSyncWrite.addParam(DXL1_ID, param_goal_velocity_1)
+groupSyncWrite.addParam(DXL2_ID, param_goal_velocity_2)
+groupSyncWrite.addParam(DXL3_ID, param_goal_velocity_3)
+
+# Transmit packet (write velocities to motors simultaneously)
+dxl_comm_result = groupSyncWrite.txPacket()
+if dxl_comm_result != COMM_SUCCESS:
+    print(f"Sync Write failed: {packetHandler.getTxRxResult(dxl_comm_result)}")
+
+print("Motor 1 torque enabled")
+print("Motor 1 goal velocity set to", goal_velocity_1)
+
+dxl_present_velocity, dxl_comm_result, dxl_error = packetHandler.read4ByteTxRx(portHandler, DXL1_ID, ADDR_PRESENT_VELOCITY)
+print(f"Motor 1 present velocity: {dxl_present_velocity}")
+
+# Clear the parameters
+groupSyncWrite.clearParam()
+
+# Close port
+portHandler.closePort()
